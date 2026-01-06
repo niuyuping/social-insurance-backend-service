@@ -1,0 +1,100 @@
+name: Commit Stage
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: liberica
+          java-version: 21
+          cache: gradle
+      - name: Build, unit tests and integration tests
+        run: |
+          chmod +x gradlew
+          ./gradlew build --no-daemon
+      - name: Code vulnerability scanning
+        uses: anchore/scan-action@v6
+        id: scan
+        with:
+          path: ${{ github.workspace }}
+          #由于仓库是私有的，而且没有购买github的企业用户授权，所以无法上传漏洞扫描报告，所以即便扫描到漏洞，也不停止构建（如果是生产环境，则需要停止构建）
+          fail-build: false 
+          severity-cutoff: high
+      - name: Upload vulnerability report
+        uses: github/codeql-action/upload-sarif@v3
+        if: failure()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+        
+  package:
+    name: Package and Publish
+    environment:
+      name: deploy-to-github
+    env:
+      REGISTRY: ${{ vars.REGISTRY_URL }}
+      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+      VERSION: ${{ vars.IMAGE_VERSION }}
+      REPOSITORY_OWNER: ${{ secrets.REPOSITORY_OWNER }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.PACKAGE_PUBLISH_PAT }}
+    if: ${{ github.ref == 'refs/heads/deploy' }}
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      actions: read
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: liberica
+          java-version: 21
+          cache: gradle
+      - name: Build container image
+        run: |
+          chmod +x gradlew
+          ./gradlew bootBuildImage --no-daemon --info \
+            --imageName ${{ env.REGISTRY }}/${{ env.REPOSITORY_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+      - name: OCI image vulnerability scanning
+        uses: anchore/scan-action@v6
+        id: scan
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.REPOSITORY_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          #由于仓库是私有的，而且没有购买github的企业用户授权，所以无法上传漏洞扫描报告，所以即便扫描到漏洞，也不停止构建（如果是生产环境，则需要停止构建）
+          fail-build: false 
+          severity-cutoff: high
+      - name: Upload vulnerability report
+        uses: github/codeql-action/upload-sarif@v3
+        if: failure()
+        with:
+          sarif_file: ${{ steps.scan.outputs.sarif }}
+      - name: Log into container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+      - name: Publish container image
+        run: |
+          docker push ${{ env.REGISTRY }}/${{ env.REPOSITORY_OWNER }}/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+          

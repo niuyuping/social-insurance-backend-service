@@ -3,6 +3,9 @@ package jp.asatex.niuyuping.social_insurance_backend_service.controller;
 import jp.asatex.niuyuping.social_insurance_backend_service.application.PremiumBracketApplicationService;
 import jp.asatex.niuyuping.social_insurance_backend_service.application.dto.SocialInsuranceApplicationDto;
 import jp.asatex.niuyuping.social_insurance_backend_service.controller.dto.SocialInsuranceDto;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,8 +36,8 @@ public class PremiumBracketController {
      */
     @GetMapping("/socialInsuranceQuery")
     public Mono<SocialInsuranceDto> socialInsuranceQuery(
-            @RequestParam("monthlySalary") Integer monthlySalary,
-            @RequestParam("age") Integer age) {
+            @Valid @NotNull(message = "月薪不能为空") @Min(value = 0, message = "月薪不能小于0") @RequestParam("monthlySalary") Integer monthlySalary,
+            @Valid @NotNull(message = "年龄不能为空") @Min(value = 0, message = "年龄不能小于0") @RequestParam("age") Integer age) {
         return premiumBracketApplicationService.socialInsuranceQuery(monthlySalary, age)
                 .map(this::convertToDto);
     }
